@@ -1,10 +1,3 @@
-// create a macro to convert error to QError
-#[macro_export]
-macro_rules! err {
-    ( $msg:expr) => {
-        Err(create::error::QError("", $msg.to_string()))
-    };
-}
 use std::fmt;
 
 #[derive(Debug)]

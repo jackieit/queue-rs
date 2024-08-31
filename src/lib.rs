@@ -16,3 +16,10 @@ pub fn timestamp() -> QResult<u64> {
     let timestamp = since_the_epoch.as_secs();
     Ok(timestamp)
 }
+// create a macro to convert error to QError
+#[macro_export]
+macro_rules! err {
+    ( $msg:expr) => {
+        Err(crate::error::QError("".to_string(), $msg.to_string()))
+    };
+}
