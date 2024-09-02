@@ -1,14 +1,14 @@
-use crate::job::{JobTrait, SerializeJob};
+use crate::job::JobTrait;
 use crate::{err, timestamp, QResult};
 use redis::{Commands, ExistenceCheck, SetExpiry, SetOptions};
-
+use serde::Serialize;
 /// task is waiting to be executed
 const STATUS_WAITING: u8 = 1;
 /// task is reserved
 const STATUS_RESERVED: u8 = 2;
 /// task has done
 const STATUS_DONE: u8 = 3;
-
+/// (message_id, message, ttr, attempts)
 type JobMessage = (u64, String, u32, u32);
 
 #[derive(Debug)]
@@ -40,7 +40,7 @@ impl Queue {
         }
     }
     /// Push a job to the queue
-    pub fn push(&self, job: impl SerializeJob) -> QResult<()> {
+    pub fn push(&self, job: impl JobTrait + Serialize + Send) -> QResult<()> {
         //let mut conn = self.redis.get_connection()?;
         //conn.lpush(self.channel.clone(), job)?;
         let message = serde_json::to_string(&job)?;
@@ -63,32 +63,18 @@ impl Queue {
         Ok(id)
     }
     /// handle a message to execute
-    fn handle_message(&self, job: JobMessage) -> QResult<()> {
+    pub fn handle_message(&self, job: JobMessage) -> QResult<()> {
         let (_id, message, _ttr, _attempts) = job;
         let job: Box<dyn JobTrait> = serde_json::from_str(&message)?;
         job.execute()?;
+        //self.delete(id)?;
         Ok(())
-    }
-    pub fn listen<'a>(&self) {
-        /*
-        std::thread::spawn(move || loop {
-            let job = self.reserve(0);
-            match job {
-                Ok(job) => {
-                    let _ = self.handle_message::<dyn JobTrait + DeserializeOwned>(job);
-                }
-                Err(err) => {
-                    println!("Error: {}", err);
-                }
-            }
-        }); */
-        todo!()
     }
     /// reserve a job, fetch the job from redis queue
     /// 1st Moves delayed and reserved jobs into waiting list with lock for one second
     /// 2nd find the job in waiting list
     /// return the job id, message, ttr, attempts as unit type
-    fn reserve(&self, timeout: u64) -> QResult<()> {
+    pub fn reserve(&self, timeout: u64) -> QResult<JobMessage> {
         let mut conn = self.redis.get_connection()?;
         let opts = SetOptions::default()
             .conditional_set(ExistenceCheck::NX)
@@ -99,9 +85,12 @@ impl Queue {
             self.move_expired("reserved")?;
         }
         let id: u64 = if timeout == 0 {
-            conn.rpop(self.k("waiting"), None)?
+            let id: Option<u64> = conn.rpop(self.k("waiting"), None)?;
+            println!("=====No job found");
+            id.unwrap_or(0)
         } else {
-            conn.brpop(self.k("waiting"), timeout as f64)?
+            let id: Option<u64> = conn.brpop(self.k("waiting"), timeout as f64)?;
+            id.unwrap_or(0)
         };
         if id == 0 {
             return err!("No job found");
@@ -117,9 +106,9 @@ impl Queue {
         let now = timestamp()?;
         conn.zadd(self.k("reserved"), id, now + ttr as u64)?;
         let attampts: u32 = conn.hincr(self.k("attempts"), id, 1)?;
-        self.handle_message((id, message, ttr, attampts))?;
-        Ok(())
-        //Ok((id, message, ttr, attampts))
+        //self.handle_message((id, message, ttr, attampts))?;
+        //Ok(())
+        Ok((id, message, ttr, attampts))
     }
     /// clear the queue
     pub fn clear(&self) -> QResult<()> {
@@ -129,7 +118,7 @@ impl Queue {
     }
 
     /// remove a job by id
-    pub fn remove(&self, message_id: u64) -> QResult<(bool)> {
+    pub fn remove(&self, message_id: u64) -> QResult<bool> {
         let mut conn = self.redis.get_connection()?;
         let opts = SetOptions::default()
             .conditional_set(ExistenceCheck::NX)
@@ -216,7 +205,23 @@ impl Queue {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use serde::{Deserialize, Serialize};
+    #[derive(Serialize, Deserialize)]
+    struct TestJob {
+        title: String,
+    }
+    impl TestJob {
+        fn new(title: String) -> Self {
+            TestJob { title }
+        }
+    }
+    #[typetag::serde]
+    impl JobTrait for TestJob {
+        fn execute(&self) -> QResult<()> {
+            println!("test job [{}] executed", self.title);
+            Ok(())
+        }
+    }
     // test queue init work
     #[test]
     fn test_queue_init() {
@@ -244,5 +249,13 @@ mod tests {
         assert_eq!(has_set, true);
         let has_set: bool = conn.set_options("test.lock", true, opts).unwrap();
         assert_eq!(has_set, false);
+    }
+
+    // test add jobs work
+    #[test]
+    fn test_add_jobs() {
+        let queue = Queue::new("test", redis::Client::open("redis://127.0.0.1/").unwrap());
+        let job = queue.push(TestJob::new("first job".to_string()));
+        assert_eq!(job.is_ok(), true);
     }
 }

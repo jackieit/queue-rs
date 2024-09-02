@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub mod error;
 pub mod job;
 pub mod queue;
+pub mod task;
 
 pub type QResult<T> = Result<T, QError>;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = QResult<T>> + Send + 'a>>;
