@@ -23,7 +23,7 @@
  // impl JobTrait
  #[MakeJob]
  impl JobTrait for TestJob {
-     fn execute(&self) -> -> QResult<()> {
+     fn execute(&self) -> QResult<()> {
         println!("test job [{}] executed", self.name);
         Ok(())
      }
