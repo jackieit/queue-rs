@@ -40,12 +40,14 @@ impl Queue {
         }
     }
     /// Push a job to the queue
-    pub fn push(&self, job: impl JobTrait + Serialize + Send) -> QResult<()> {
+    pub fn push(&self, job: impl JobTrait + Serialize + Send) -> QResult<u64> {
         //let mut conn = self.redis.get_connection()?;
         //conn.lpush(self.channel.clone(), job)?;
-        let message = serde_json::to_string(&job)?;
-        self.push_message(message)?;
-        Ok(())
+        let job = &job as &dyn JobTrait;
+        let message = serde_json::to_string(job)?;
+        println!("Pushing message: {}", &message);
+        let job_id = self.push_message(message)?;
+        Ok(job_id)
     }
     /// push a message to redis queue
     fn push_message(&self, message: String) -> QResult<u64> {
@@ -86,7 +88,6 @@ impl Queue {
         }
         let id: u64 = if timeout == 0 {
             let id: Option<u64> = conn.rpop(self.k("waiting"), None)?;
-            println!("=====No job found");
             id.unwrap_or(0)
         } else {
             let id: Option<u64> = conn.brpop(self.k("waiting"), timeout as f64)?;
@@ -96,6 +97,7 @@ impl Queue {
             return err!("No job found");
         }
         let payload: String = conn.hget(self.k("messages"), id)?;
+
         // split the payload as ttr and message
         let payload: Vec<&str> = payload.split(";").collect();
         let ttr: u32 = match payload[0].parse::<u32>() {
@@ -104,28 +106,40 @@ impl Queue {
         };
         let message: String = payload[1].to_string();
         let now = timestamp()?;
+
         conn.zadd(self.k("reserved"), id, now + ttr as u64)?;
+
         let attampts: u32 = conn.hincr(self.k("attempts"), id, 1)?;
+
         //self.handle_message((id, message, ttr, attampts))?;
-        //Ok(())
         Ok((id, message, ttr, attampts))
     }
     /// clear the queue
     pub fn clear(&self) -> QResult<()> {
         let mut conn = self.redis.get_connection()?;
-        conn.del(self.k("*"))?;
+        let pattern = self.k("*");
+        let keys: Vec<String> = conn.scan_match(pattern)?.collect();
+        //println!("=====Clearing queue: {:?}", keys);
+        if !keys.is_empty() {
+            conn.del(keys)?;
+        }
         Ok(())
     }
 
-    /// remove a job by id
+    /// remove a job by id, if a job is runing it will be retried after 5 seconds
     pub fn remove(&self, message_id: u64) -> QResult<bool> {
         let mut conn = self.redis.get_connection()?;
         let opts = SetOptions::default()
             .conditional_set(ExistenceCheck::NX)
             .with_expiration(SetExpiry::EX(1));
-        while conn.set_options(self.k("moving_lock"), true, opts)? {
-            std::thread::sleep(std::time::Duration::from_secs(10));
+        loop {
+            let has_set: bool = conn.set_options(self.k("moving_lock"), true, opts)?;
+            if has_set {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(5));
         }
+
         let has_del: bool = conn.hdel(self.k("messages"), message_id)?;
         if has_del {
             conn.zrem(self.k("reserved"), message_id)?;
@@ -222,6 +236,10 @@ mod tests {
             Ok(())
         }
     }
+    #[derive(Serialize, Deserialize)]
+    enum Jobs {
+        TestJob(TestJob),
+    }
     // test queue init work
     #[test]
     fn test_queue_init() {
@@ -254,8 +272,26 @@ mod tests {
     // test add jobs work
     #[test]
     fn test_add_jobs() {
-        let queue = Queue::new("test", redis::Client::open("redis://127.0.0.1/").unwrap());
+        let mut queue = Queue::new("test", redis::Client::open("redis://127.0.0.1/").unwrap());
+        queue.delay(30);
         let job = queue.push(TestJob::new("first job".to_string()));
         assert_eq!(job.is_ok(), true);
+    }
+    // test clear all keys
+    #[test]
+    fn test_clear_all_keys() {
+        let queue = Queue::new("test", redis::Client::open("redis://127.0.0.1/").unwrap());
+        //queue.remove(1).unwrap();
+        queue.clear().unwrap();
+    }
+    // test struct to json work
+    #[test]
+    fn test_struct_to_json() {
+        let job = TestJob::new("first job".to_string());
+        let event = &job as &dyn JobTrait;
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(json, "{\"type\":\"TestJob\",\"title\":\"first job\"}");
+        let de: Box<dyn JobTrait> = serde_json::from_str(&json).unwrap();
+        assert_eq!(de.execute().is_ok(), true);
     }
 }

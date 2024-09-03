@@ -31,12 +31,12 @@ impl QueueTask {
                         let message_id = job.0;
                         let result = inner.handle_message(job);
                         if result.is_err() {
-                            println!("{:?}", result.err());
+                            println!("handle message: {:?}", result.err());
                             continue;
                         }
                         let result = inner.delete(message_id);
                         if result.is_err() {
-                            println!("{:?}", result.err());
+                            println!("delete message: {:?}", result.err());
                             continue;
                         }
                     }
