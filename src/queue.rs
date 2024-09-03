@@ -304,8 +304,8 @@ mod tests {
     // test add jobs work
     #[test]
     fn test_add_jobs() {
-        let queue = Queue::new("test", redis::Client::open("redis://127.0.0.1/").unwrap());
-        //queue.delay(1);
+        let mut queue = Queue::new("test", redis::Client::open("redis://127.0.0.1/").unwrap());
+        queue.delay(10);
         let job = queue.push(TestJob::new("first job".to_string()));
         assert_eq!(job.is_ok(), true);
     }
