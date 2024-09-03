@@ -1,6 +1,6 @@
 # queue-rs
  A simple queue library for rust which execute delay and sync jobs.
- Now ,it's only support redis now,may be support other queue in the future such as db,file and so on.
+ Now ,it's only support redis ,may be support other queue later such as db,file and so on.
  ## Usage
  
  1. how to add a job to queue
@@ -8,7 +8,7 @@
  ```rust
  use queue_rs::queue::Queue;
  use serde::{Deserialize, Serialize};
- use queue_rs::{QResult,makejob};
+ use queue_rs::{QResult,MakeJob};
  // define a job struct
  #[derive(Serialize, Deserialize)]
  pub struct TestJob {
@@ -21,7 +21,7 @@
     }
  }
  // impl JobTrait
- #[makejob]
+ #[MakeJob]
  impl JobTrait for TestJob {
      fn execute(&self) -> -> QResult<()> {
         println!("test job [{}] executed", self.name);
