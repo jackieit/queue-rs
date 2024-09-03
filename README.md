@@ -1,6 +1,6 @@
 # queue-rs
  A simple queue library for rust which execute delay and sync jobs.
- Now ,it's only support redis now,may be support other queue in the future such as db,file and 
+ Now ,it's only support redis now,may be support other queue in the future such as db,file and so on.
  ## Usage
  
  1. how to add a job to queue
