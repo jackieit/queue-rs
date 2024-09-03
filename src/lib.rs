@@ -7,8 +7,9 @@
 //!
 //! ```rust
 //! use queue_rs::queue::Queue;
+//! use queue_rs::job::JobTrait;
 //! use serde::{Deserialize, Serialize};
-//! use queue_rs::{QResult,makejob};
+//! use queue_rs::{QResult,MakeJob};
 //! // define a job struct
 //! #[derive(Serialize, Deserialize)]
 //! pub struct TestJob {
@@ -21,7 +22,7 @@
 //!    }
 //! }
 //! // impl JobTrait
-//! #[makejob]
+//! #[MakeJob]
 //! impl JobTrait for TestJob {
 //!     fn execute(&self) -> -> QResult<()> {
 //!        println!("test job [{}] executed", self.name);
@@ -56,7 +57,7 @@
 use crate::error::QError;
 
 use std::time::{SystemTime, UNIX_EPOCH};
-pub use typetag::serde as makejob;
+pub use typetag::serde as MakeJob;
 pub mod error;
 pub mod job;
 pub mod queue;
