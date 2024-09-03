@@ -1,14 +1,14 @@
 use crate::error::QError;
-use std::future::Future;
-use std::pin::Pin;
+
 use std::time::{SystemTime, UNIX_EPOCH};
+pub use typetag::serde as makejob;
 pub mod error;
 pub mod job;
 pub mod queue;
 pub mod task;
 
 pub type QResult<T> = Result<T, QError>;
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = QResult<T>> + Send + 'a>>;
+//pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = QResult<T>> + Send + 'a>>;
 
 /// get current unix timestamp
 pub fn timestamp() -> QResult<u64> {

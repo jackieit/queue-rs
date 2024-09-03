@@ -15,54 +15,83 @@ impl QueueTask {
             inner: Arc::new(Mutex::new(queue)),
         }
     }
-    /// run a task to fetch all jobs and execute them
-    /// timeout: the timeout of the job
-    /// todo : the error msg should write to log file, not print to stdout now because of loop without a break
-    pub fn listen(&self, timeout: u64) -> Result<(), QError> {
+    /// run all jobs in queue, loop until a error occur
+    pub fn run(&self, timeout: u64) -> Result<(), QError> {
         let inner = Arc::clone(&self.inner);
-
         thread::spawn(move || -> QResult<()> {
             loop {
-                thread::sleep(Duration::from_millis(300));
                 let inner = inner.lock().unwrap();
-                let job = inner.reserve(timeout);
-                match job {
-                    Ok(job) => {
-                        let message_id = job.0;
-                        let result = inner.handle_message(job);
-                        if result.is_err() {
-                            println!("handle message: {:?}", result.err());
-                            continue;
-                        }
-                        let result = inner.delete(message_id);
-                        if result.is_err() {
-                            println!("delete message: {:?}", result.err());
-                            continue;
-                        }
-                    }
-                    Err(e) => {
-                        println!("{:?}", e);
-                        continue;
-                    }
-                }
+                let job = inner.reserve(timeout)?;
+                let message_id = job.0;
+                inner.handle_message(job)?;
+                inner.delete(message_id)?;
             }
         })
         .join()
-        .unwrap()
+        .unwrap()?;
+        Ok(())
+    }
+    /// run a task to fetch all jobs and execute them
+    /// timeout: the timeout of the job
+    /// todo : the error msg should write to log file, not print to stdout now because of loop without a break
+    pub fn listen(&self, timeout: u64) {
+        let inner = Arc::clone(&self.inner);
+
+        let _ = thread::spawn(move || loop {
+            let inner = inner.lock().unwrap();
+            let job = inner.reserve(timeout);
+            match job {
+                Ok(job) => {
+                    let message_id = job.0;
+                    let result = inner.handle_message(job);
+                    if result.is_err() {
+                        println!("handle message: {:?}", result.err());
+                        thread::sleep(Duration::from_millis(1000));
+                        continue;
+                    }
+                    let result = inner.delete(message_id);
+                    if result.is_err() {
+                        println!("delete message: {:?}", result.err());
+                        thread::sleep(Duration::from_millis(1000));
+                        continue;
+                    }
+                }
+                Err(e) => {
+                    println!("{:?}", e);
+                    thread::sleep(Duration::from_millis(1000));
+                    continue;
+                }
+            };
+            thread::sleep(Duration::from_millis(1000));
+        })
+        .join()
+        .unwrap();
     }
 }
 
 // test
 #[cfg(test)]
 mod tests {
-    // test run should work
+    use tracing_subscriber;
+
+    // test listen should work
     #[test]
-    fn test_run() -> crate::QResult<()> {
+    fn test_run() {
         use super::QueueTask;
         use crate::queue::Queue;
 
         let queue = Queue::new("test", redis::Client::open("redis://127.0.0.1/").unwrap());
         let task = QueueTask::new(queue);
-        task.listen(0)
+        let _ = task.run(0);
+    }
+    // test run should work
+    #[test]
+    fn test_listen() {
+        use super::QueueTask;
+        use crate::queue::Queue;
+        tracing_subscriber::fmt::init();
+        let queue = Queue::new("test", redis::Client::open("redis://127.0.0.1/").unwrap());
+        let task = QueueTask::new(queue);
+        let _ = task.listen(1);
     }
 }

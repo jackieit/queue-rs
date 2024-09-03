@@ -33,4 +33,5 @@ impl From<std::time::SystemTimeError> for QError {
         QError::new("SystemTimeError", err.to_string())
     }
 }
+
 impl std::error::Error for QError {}

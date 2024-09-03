@@ -2,6 +2,7 @@ use crate::job::JobTrait;
 use crate::{err, timestamp, QResult};
 use redis::{Commands, ExistenceCheck, SetExpiry, SetOptions};
 use serde::Serialize;
+use tracing::{error, info, instrument, span, Level};
 /// task is waiting to be executed
 const STATUS_WAITING: u8 = 1;
 /// task is reserved
@@ -45,7 +46,7 @@ impl Queue {
         //conn.lpush(self.channel.clone(), job)?;
         let job = &job as &dyn JobTrait;
         let message = serde_json::to_string(job)?;
-        println!("Pushing message: {}", &message);
+        //println!("Pushing message: {}", &message);
         let job_id = self.push_message(message)?;
         Ok(job_id)
     }
@@ -65,10 +66,15 @@ impl Queue {
         Ok(id)
     }
     /// handle a message to execute
+    #[instrument]
     pub fn handle_message(&self, job: JobMessage) -> QResult<()> {
-        let (_id, message, _ttr, _attempts) = job;
+        let (id, message, ttr, attempts) = job;
         let job: Box<dyn JobTrait> = serde_json::from_str(&message)?;
         job.execute()?;
+        info!(
+            "Executed job successed, id:[{}],message:[{}],ttr:[{}],attampts:[{}]",
+            id, &message, ttr, attempts
+        );
         //self.delete(id)?;
         Ok(())
     }
@@ -76,33 +82,53 @@ impl Queue {
     /// 1st Moves delayed and reserved jobs into waiting list with lock for one second
     /// 2nd find the job in waiting list
     /// return the job id, message, ttr, attempts as unit type
+    #[instrument]
     pub fn reserve(&self, timeout: u64) -> QResult<JobMessage> {
+        let span = span!(Level::TRACE, "Run Job ");
+        let _enter = span.enter();
         let mut conn = self.redis.get_connection()?;
         let opts = SetOptions::default()
             .conditional_set(ExistenceCheck::NX)
             .with_expiration(SetExpiry::EX(1));
         let has_set: bool = conn.set_options(self.k("moving_lock"), true, opts)?;
         if has_set {
+            info!("Moving delayed jobs into waiting list");
             self.move_expired("delayed")?;
+            info!("Moving reserved jobs into waiting list");
             self.move_expired("reserved")?;
         }
+        info!("Fetching job from waiting list");
         let id: u64 = if timeout == 0 {
             let id: Option<u64> = conn.rpop(self.k("waiting"), None)?;
             id.unwrap_or(0)
         } else {
-            let id: Option<u64> = conn.brpop(self.k("waiting"), timeout as f64)?;
-            id.unwrap_or(0)
+            let id: Option<(String, u64)> = conn.brpop(self.k("waiting"), timeout as f64)?;
+            match id {
+                Some((_, id)) => id,
+                None => 0,
+            }
         };
         if id == 0 {
+            error!("No job fetched from waiting list");
             return err!("No job found");
         }
+        info!("Fetched job ID:[{}]", id);
         let payload: String = conn.hget(self.k("messages"), id)?;
-
+        info!(
+            "Fetched job ID:[{}] with Message:[{}] from waiting list",
+            id, &payload
+        );
         // split the payload as ttr and message
         let payload: Vec<&str> = payload.split(";").collect();
         let ttr: u32 = match payload[0].parse::<u32>() {
             Ok(ttr) => ttr,
-            Err(_) => return err!("Invalid ttr"),
+            Err(_) => {
+                error!(
+                    "Parsed message ttr from payload ,Invalid ttr:[{}]",
+                    payload[0]
+                );
+                return err!("Invalid ttr");
+            }
         };
         let message: String = payload[1].to_string();
         let now = timestamp()?;
@@ -110,7 +136,10 @@ impl Queue {
         conn.zadd(self.k("reserved"), id, now + ttr as u64)?;
 
         let attampts: u32 = conn.hincr(self.k("attempts"), id, 1)?;
-
+        info!(
+            "Fetched message successed id:[{}],message:[{}],ttr:[{}],attampts:[{}]",
+            id, &message, ttr, attampts
+        );
         //self.handle_message((id, message, ttr, attampts))?;
         Ok((id, message, ttr, attampts))
     }
@@ -152,11 +181,13 @@ impl Queue {
         }
     }
     /// delete a job from redis queue
+    #[instrument]
     pub fn delete(&self, message_id: u64) -> QResult<()> {
         let mut conn = self.redis.get_connection()?;
         conn.hdel(self.k("messages"), message_id)?;
         conn.hdel(self.k("attempts"), message_id)?;
         conn.zrem(self.k("reserved"), message_id)?;
+        info!("Deleted message successed id:[{}]", message_id);
         Ok(())
     }
     /// move expired jobs [from] to waiting list
@@ -220,6 +251,7 @@ impl Queue {
 mod tests {
     use super::*;
     use serde::{Deserialize, Serialize};
+    pub use typetag::serde as ThisJob;
     #[derive(Serialize, Deserialize)]
     struct TestJob {
         title: String,
@@ -229,7 +261,7 @@ mod tests {
             TestJob { title }
         }
     }
-    #[typetag::serde]
+    #[ThisJob]
     impl JobTrait for TestJob {
         fn execute(&self) -> QResult<()> {
             println!("test job [{}] executed", self.title);
@@ -272,8 +304,8 @@ mod tests {
     // test add jobs work
     #[test]
     fn test_add_jobs() {
-        let mut queue = Queue::new("test", redis::Client::open("redis://127.0.0.1/").unwrap());
-        queue.delay(30);
+        let queue = Queue::new("test", redis::Client::open("redis://127.0.0.1/").unwrap());
+        //queue.delay(1);
         let job = queue.push(TestJob::new("first job".to_string()));
         assert_eq!(job.is_ok(), true);
     }
