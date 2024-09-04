@@ -17,7 +17,7 @@
  }
  impl TestJob {
     fn new(name: String) -> Self {
-       TestJob { title }
+       TestJob { name }
     }
  }
  // impl JobTrait
