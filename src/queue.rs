@@ -66,7 +66,7 @@ impl Queue {
         Ok(id)
     }
     /// handle a message to execute
-    #[instrument]
+    #[instrument(name = "reserve", skip_all)]
     pub fn handle_message(&self, job: JobMessage) -> QResult<()> {
         let (id, message, ttr, attempts) = job;
         let job: Box<dyn JobTrait> = serde_json::from_str(&message)?;
@@ -93,7 +93,7 @@ impl Queue {
     /// 1st Moves delayed and reserved jobs into waiting list with lock for one second
     /// 2nd find the job in waiting list
     /// return the job id, message, ttr, attempts as unit type
-    #[instrument]
+    #[instrument(name = "reserve", skip_all)]
     pub fn reserve(&self, timeout: u64) -> QResult<JobMessage> {
         let span = span!(Level::TRACE, "Run Job ");
         let _enter = span.enter();
@@ -103,9 +103,9 @@ impl Queue {
             .with_expiration(SetExpiry::EX(1));
         let has_set: bool = conn.set_options(self.k("moving_lock"), true, opts)?;
         if has_set {
-            info!("Moving delayed jobs into waiting list");
+            info!("Moving delayed and reserved jobs into waiting list");
             self.move_expired("delayed")?;
-            info!("Moving reserved jobs into waiting list");
+            //info!("Moving reserved jobs into waiting list");
             self.move_expired("reserved")?;
         }
         info!("Fetching job from waiting list");
@@ -120,10 +120,10 @@ impl Queue {
             }
         };
         if id == 0 {
-            error!("No job fetched from waiting list");
+            info!("No job fetched from waiting list");
             return err!("No job found");
         }
-        info!("Fetched job ID:[{}]", id);
+        //info!("Fetched job ID:[{}]", id);
         let payload: String = conn.hget(self.k("messages"), id)?;
         info!(
             "Fetched job ID:[{}] with Message:[{}] from waiting list",
@@ -192,7 +192,7 @@ impl Queue {
         }
     }
     /// delete a job from redis queue
-    #[instrument]
+    #[instrument(name = "reserve", skip_all)]
     pub fn delete(&self, message_id: u64) -> QResult<()> {
         let mut conn = self.redis.get_connection()?;
         conn.hdel(self.k("messages"), message_id)?;

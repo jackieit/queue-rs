@@ -15,7 +15,7 @@ impl QueueTask {
             inner: Arc::new(Mutex::new(queue)),
         }
     }
-    /// run all jobs in queue, loop until a error occur
+    /// run all jobs in queue, loop until an error occur
     pub fn run(&self, timeout: u64) -> Result<(), QError> {
         let inner = Arc::clone(&self.inner);
         thread::spawn(move || -> QResult<()> {
@@ -45,13 +45,11 @@ impl QueueTask {
                     let message_id = job.0;
                     let result = inner.handle_message(job);
                     if result.is_err() {
-                        println!("handle message: {:?}", result.err());
                         thread::sleep(Duration::from_millis(1000));
                         continue;
                     }
                     let result = inner.delete(message_id);
                     if result.is_err() {
-                        println!("delete message: {:?}", result.err());
                         thread::sleep(Duration::from_millis(1000));
                         continue;
                     }
