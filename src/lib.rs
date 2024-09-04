@@ -83,6 +83,6 @@ pub fn timestamp() -> QResult<u64> {
 #[macro_export]
 macro_rules! err {
     ( $msg:expr) => {
-        Err(crate::error::QError("".to_string(), $msg.to_string()))
+        Err(crate::error::QError::new("".to_string(), $msg.to_string()))
     };
 }

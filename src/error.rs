@@ -1,17 +1,23 @@
 use std::fmt;
-
 #[derive(Debug)]
-pub struct QError(pub String, pub String);
+pub struct QError {
+    kind: String,
+    message: String,
+}
 
 impl QError {
+    /// init a error with kind and message
     pub fn new(kind: impl Into<String>, message: String) -> Self {
-        QError(kind.into(), message)
+        QError {
+            kind: kind.into(),
+            message,
+        }
     }
 }
 
 impl fmt::Display for QError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "QueueError: {} {}", self.0, self.1)
+        write!(f, "QueueError: {} {}", self.kind, self.message)
     }
 }
 /// impl redis error

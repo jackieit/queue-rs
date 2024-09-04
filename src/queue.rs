@@ -70,11 +70,22 @@ impl Queue {
     pub fn handle_message(&self, job: JobMessage) -> QResult<()> {
         let (id, message, ttr, attempts) = job;
         let job: Box<dyn JobTrait> = serde_json::from_str(&message)?;
-        job.execute()?;
-        info!(
-            "Executed job successed, id:[{}],message:[{}],ttr:[{}],attampts:[{}]",
-            id, &message, ttr, attempts
-        );
+        let result = job.execute();
+        match result {
+            Err(e) => {
+                info!(
+                    "Executed job failed with error: [{}] , id:[{}],message:[{}],ttr:[{}],attampts:[{}]",
+                    e.to_string(), id, &message, ttr, attempts
+                );
+            }
+            Ok(_) => {
+                info!(
+                    "Executed job successed, id:[{}],message:[{}],ttr:[{}],attampts:[{}]",
+                    id, &message, ttr, attempts
+                );
+            }
+        }
+
         //self.delete(id)?;
         Ok(())
     }
