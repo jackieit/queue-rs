@@ -52,3 +52,9 @@
  let task  = QueueTask::new(queue);
  task.run(0);
  ```
+ 5. tracing logs
+ add tracing-subscriber to cargo.toml
+ ```
+ tracing-subscriber="0.3"
+ ```
+ add tracing_subscriber::fmt::init();` to your main function, more info about [tracing](https://github.com/tokio-rs/tracing/tree/master/tracing-subscriber)

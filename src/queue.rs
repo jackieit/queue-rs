@@ -1,7 +1,7 @@
 use crate::job::JobTrait;
 use crate::{err, timestamp, QResult};
 use redis::{Commands, ExistenceCheck, SetExpiry, SetOptions};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::{error, info, instrument, span, Level};
 /// task is waiting to be executed
 const STATUS_WAITING: u8 = 1;
@@ -41,7 +41,7 @@ impl Queue {
         }
     }
     /// Push a job to the queue
-    pub fn push(&self, job: impl JobTrait + Serialize + Send) -> QResult<u64> {
+    pub fn push<'a, T: JobTrait + Serialize + Deserialize<'a>>(&self, job: T) -> QResult<u64> {
         //let mut conn = self.redis.get_connection()?;
         //conn.lpush(self.channel.clone(), job)?;
         let job = &job as &dyn JobTrait;
@@ -268,10 +268,7 @@ mod tests {
             Ok(())
         }
     }
-    #[derive(Serialize, Deserialize)]
-    enum Jobs {
-        TestJob(TestJob),
-    }
+
     // test queue init work
     #[test]
     fn test_queue_init() {
